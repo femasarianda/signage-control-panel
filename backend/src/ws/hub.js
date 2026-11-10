@@ -52,6 +52,9 @@ async function setStatus(id, status) {
 async function registerDevice(ws, deviceId) {
   const { data } = await supabase.from('devices').select('id').eq('id', deviceId).maybeSingle();
   if (!data) return ws.close(4404, 'Device tidak terdaftar');
+  // Socket bisa sudah tertutup selama menunggu query di atas (mis. koneksi ganda saat React StrictMode);
+  // jangan daftarkan socket mati, karena event 'close'-nya sudah lewat dan device tidak akan pernah offline.
+  if (ws.readyState !== ws.OPEN) return;
 
   let sockets = devices.get(deviceId);
   const wasOffline = !sockets;
@@ -83,6 +86,10 @@ function startHeartbeat() {
       }
       ws.isAlive = false;
       ws.ping();
+    }
+    // Jaring pengaman: buang socket yang sudah tidak OPEN dari registry
+    for (const sockets of devices.values()) {
+      for (const ws of sockets) if (ws.readyState !== ws.OPEN) void unregister(ws);
     }
     const ids = [...devices.keys()];
     if (ids.length) {

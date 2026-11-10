@@ -1,7 +1,9 @@
 ﻿node_modules/
 dist/
+release/
 .env
 .env.*
 !.env.example
+!.env.electron
 *.log
 .DS_Store

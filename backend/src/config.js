@@ -13,6 +13,11 @@ export const config = {
   bucket: process.env.SUPABASE_BUCKET || 'contents',
   jwtSecret: required('JWT_SECRET'),
   jwtExpiresIn: process.env.JWT_EXPIRES_IN || '8h',
-  corsOrigins: (process.env.CORS_ORIGIN || '').split(',').map((s) => s.trim()).filter(Boolean),
+  // Kosong = izinkan semua origin. Jika diisi, origin 'null' (halaman file:// milik app Electron)
+  // selalu ikut diizinkan. Aman karena autentikasi memakai header Bearer, bukan cookie.
+  corsOrigins: (() => {
+    const list = (process.env.CORS_ORIGIN || '').split(',').map((s) => s.trim()).filter(Boolean);
+    return list.length ? [...list, 'null'] : [];
+  })(),
   heartbeatMs: 15000,
 };

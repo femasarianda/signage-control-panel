@@ -1,8 +1,11 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { CircleAlert, MonitorOff, MonitorSmartphone, Plus, RotateCw, Search, SearchX, Trash2, Wifi, WifiOff } from 'lucide-react';
 import { api } from '../lib/api.js';
 import { useDevices } from '../lib/useDevices.js';
 import { useToast } from '../lib/toast.jsx';
-import { Button, EmptyState, StatusBadge, timeAgo } from '../components/ui.jsx';
+import { useConfirm } from '../lib/confirm.jsx';
+import { Button, EmptyState, ICON_STROKE, Input } from '../components/ui.jsx';
+import DeviceCard, { DeviceCardSkeleton } from '../components/DeviceCard.jsx';
 import DeviceFormModal from '../components/DeviceFormModal.jsx';
 import PlaylistModal from '../components/PlaylistModal.jsx';
 import PushModal from '../components/PushModal.jsx';
@@ -10,11 +13,54 @@ import PushModal from '../components/PushModal.jsx';
 // URL halaman player (device-client). Bisa diubah lewat VITE_PLAYER_URL.
 const PLAYER_URL = import.meta.env.VITE_PLAYER_URL || 'http://localhost:5174';
 
+const FILTERS = [
+  { id: 'all', label: 'Semua device', icon: MonitorSmartphone, tone: 'accent' },
+  { id: 'online', label: 'Online', icon: Wifi, tone: 'online' },
+  { id: 'offline', label: 'Offline', icon: WifiOff, tone: 'offline' },
+];
+
+const TONES = {
+  accent: 'bg-accent-soft text-accent-ink',
+  online: 'bg-online-soft text-online-ink',
+  offline: 'bg-offline-soft text-offline-ink',
+};
+
+function StatFilter({ filter, count, total, active, onSelect }) {
+  const { label, icon: Icon, tone, id } = filter;
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      aria-pressed={active}
+      className={`flex flex-col items-start gap-2 rounded-2xl border bg-surface p-3 text-left shadow-card transition-all sm:flex-row sm:items-center sm:gap-3
+        focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent sm:p-4 ${
+          active ? 'border-accent ring-3 ring-accent/15' : 'border-line hover:border-line-strong'
+        }`}
+    >
+      <span className={`grid size-8 shrink-0 place-items-center rounded-lg sm:size-10 sm:rounded-xl ${TONES[tone]}`}>
+        <Icon className="size-4 sm:size-5" strokeWidth={ICON_STROKE} aria-hidden />
+      </span>
+      <span className="min-w-0 max-w-full">
+        <span className="block truncate text-xs font-medium text-muted sm:text-[13px]">{label}</span>
+        <span className="flex items-baseline gap-1.5">
+          <span className="text-xl font-semibold tabular-nums text-fg">{count}</span>
+          {id !== 'all' && total > 0 && (
+            <span className="hidden text-xs text-muted sm:inline">{Math.round((count / total) * 100)}%</span>
+          )}
+        </span>
+      </span>
+    </button>
+  );
+}
+
 export default function Devices() {
   const toast = useToast();
+  const confirm = useConfirm();
   const { devices, loading, error, live, refresh } = useDevices();
   const [contents, setContents] = useState([]);
   const [modal, setModal] = useState(null); // { type: 'form' | 'playlist' | 'push', device? }
+  const [filter, setFilter] = useState('all');
+  const [query, setQuery] = useState('');
   const [, tick] = useState(0);
 
   useEffect(() => {
@@ -27,78 +73,130 @@ export default function Devices() {
     return () => clearInterval(id);
   }, []);
 
+  const counts = useMemo(() => {
+    const online = devices.filter((d) => d.status === 'online').length;
+    return { all: devices.length, online, offline: devices.length - online };
+  }, [devices]);
+
+  const visible = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return devices.filter(
+      (d) =>
+        (filter === 'all' || d.status === filter) &&
+        (!q || d.nama.toLowerCase().includes(q) || (d.lokasi ?? '').toLowerCase().includes(q)),
+    );
+  }, [devices, filter, query]);
+
   const close = () => setModal(null);
-  const onlineCount = devices.filter((d) => d.status === 'online').length;
-
-  const remove = async (device) => {
-    if (!confirm(`Hapus device "${device.nama}"?`)) return;
-    try {
-      await api.devices.remove(device.id);
-      toast.success('Device dihapus');
-      refresh();
-    } catch (err) {
-      toast.error(err.message);
-    }
+  const resetFilters = () => {
+    setFilter('all');
+    setQuery('');
   };
 
-  const copyLink = async (device) => {
-    await navigator.clipboard.writeText(`${PLAYER_URL}/?device=${device.id}`);
-    toast.success('Link player disalin');
-  };
+  const remove = (device) =>
+    confirm({
+      title: `Hapus device "${device.nama}"?`,
+      message: 'Device beserta playlist-nya akan dihapus permanen. Layar yang memakai link device ini tidak akan menayangkan apa pun.',
+      confirmLabel: 'Hapus device',
+      icon: Trash2,
+      tone: 'danger',
+      onConfirm: async () => {
+        try {
+          await api.devices.remove(device.id);
+          toast.success(`Device "${device.nama}" dihapus`);
+          refresh();
+        } catch (err) {
+          toast.error(err.message);
+          throw err;
+        }
+      },
+    });
 
   return (
     <div>
-      <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
+      <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div>
-          <h1 className="text-xl font-semibold">Devices</h1>
-          <p className="mt-1 flex items-center gap-2 text-sm text-muted">
-            <span>{onlineCount} online dari {devices.length} device</span>
-            <span aria-hidden>·</span>
-            <span className={`inline-flex items-center gap-1.5 ${live ? 'text-online' : 'text-danger'}`}>
-              <span className="size-1.5 rounded-full bg-current" />
-              {live ? 'Live' : 'Menyambung ulang…'}
+          <div className="flex flex-wrap items-center gap-3">
+            <h1 className="text-2xl font-semibold tracking-tight text-fg">Devices</h1>
+            <span
+              className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold ${
+                live ? 'bg-online-soft text-online-ink' : 'bg-danger-soft text-danger-ink'
+              }`}
+              role="status"
+            >
+              <span className={`size-1.5 rounded-full ${live ? 'pulse-online bg-online' : 'bg-danger'}`} aria-hidden />
+              {live ? 'Real-time aktif' : 'Menyambung ulang…'}
             </span>
-          </p>
+          </div>
+          <p className="mt-1 text-sm text-muted">Kelola layar signage dan pantau statusnya secara langsung.</p>
         </div>
-        <Button variant="primary" onClick={() => setModal({ type: 'form' })}>+ Tambah device</Button>
+
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <div className="sm:w-72">
+            <Input
+              icon={Search}
+              type="search"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Cari nama atau lokasi…"
+              aria-label="Cari device"
+            />
+          </div>
+          <Button variant="primary" icon={Plus} onClick={() => setModal({ type: 'form' })}>Tambah device</Button>
+        </div>
       </div>
 
-      {error && <p className="mb-4 text-sm text-danger" role="alert">{error}</p>}
+      <div className="mb-6 grid grid-cols-3 gap-2.5 sm:gap-4" role="group" aria-label="Filter status device">
+        {FILTERS.map((f) => (
+          <StatFilter
+            key={f.id}
+            filter={f}
+            count={counts[f.id]}
+            total={counts.all}
+            active={filter === f.id}
+            onSelect={() => setFilter(f.id)}
+          />
+        ))}
+      </div>
+
+      {error && (
+        <div className="mb-5 flex items-center gap-3 rounded-xl border border-danger/30 bg-danger-soft px-4 py-3 text-sm text-danger-ink" role="alert">
+          <CircleAlert className="size-[18px] shrink-0" strokeWidth={ICON_STROKE} aria-hidden />
+          <span className="flex-1">{error}</span>
+          <Button size="sm" icon={RotateCw} onClick={refresh}>Coba lagi</Button>
+        </div>
+      )}
 
       {loading ? (
-        <p className="text-sm text-muted">Memuat…</p>
+        <ul className="grid gap-5 sm:grid-cols-2 xl:grid-cols-3" aria-busy="true" aria-label="Memuat device">
+          {Array.from({ length: 6 }, (_, i) => <DeviceCardSkeleton key={i} />)}
+        </ul>
       ) : devices.length === 0 ? (
-        <EmptyState>Belum ada device. Klik “Tambah device” untuk memulai.</EmptyState>
+        <EmptyState
+          icon={MonitorOff}
+          title="Belum ada device"
+          action={<Button variant="primary" icon={Plus} onClick={() => setModal({ type: 'form' })}>Tambah device pertama</Button>}
+        >
+          Tambahkan device, lalu buka link player-nya di layar signage untuk mulai menayangkan content.
+        </EmptyState>
+      ) : visible.length === 0 ? (
+        <EmptyState icon={SearchX} title="Tidak ada device yang cocok" action={<Button onClick={resetFilters}>Reset filter</Button>}>
+          Coba kata kunci lain atau tampilkan semua status.
+        </EmptyState>
       ) : (
-        <ul className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {devices.map((d) => {
-            const online = d.status === 'online';
-            return (
-              <li key={d.id} className="flex flex-col rounded-xl border border-line bg-surface p-4">
-                <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <h2 className="truncate font-semibold">{d.nama}</h2>
-                    <p className="truncate text-sm text-muted">{d.lokasi || 'Lokasi belum diisi'}</p>
-                  </div>
-                  <StatusBadge status={d.status} />
-                </div>
-                <p className="mt-3 text-xs text-muted">
-                  {online ? 'Terhubung sekarang' : `Terakhir terlihat: ${timeAgo(d.last_seen)}`}
-                </p>
-                <div className="mt-4 flex flex-wrap gap-2">
-                  <Button variant="primary" className="px-3 py-1.5" disabled={!online} onClick={() => setModal({ type: 'push', device: d })}>
-                    Push
-                  </Button>
-                  <Button className="px-3 py-1.5" onClick={() => setModal({ type: 'playlist', device: d })}>Playlist</Button>
-                  <Button variant="ghost" className="px-3 py-1.5" onClick={() => copyLink(d)}>Salin link</Button>
-                </div>
-                <div className="mt-3 flex gap-1 border-t border-line pt-3">
-                  <Button variant="ghost" className="px-2.5 py-1 text-xs" onClick={() => setModal({ type: 'form', device: d })}>Edit</Button>
-                  <Button variant="ghost" className="px-2.5 py-1 text-xs text-danger" onClick={() => remove(d)}>Hapus</Button>
-                </div>
-              </li>
-            );
-          })}
+        <ul className="grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
+          {visible.map((d) => (
+            <DeviceCard
+              key={d.id}
+              device={d}
+              playerUrl={PLAYER_URL}
+              onPush={() => setModal({ type: 'push', device: d })}
+              onPlaylist={() => setModal({ type: 'playlist', device: d })}
+              onEdit={() => setModal({ type: 'form', device: d })}
+              onDelete={() => remove(d)}
+              onError={toast.error}
+            />
+          ))}
         </ul>
       )}
 

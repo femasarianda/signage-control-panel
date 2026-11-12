@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
+import { ChevronDown, ChevronUp, Inbox, ListVideo, Plus, X } from 'lucide-react';
 import { api } from '../lib/api.js';
 import { useToast } from '../lib/toast.jsx';
-import { Button, EmptyState, Modal } from './ui.jsx';
-import ContentPreview, { typeLabel } from './ContentPreview.jsx';
+import { Button, EmptyState, IconButton, Skeleton, Modal } from './ui.jsx';
+import ContentPreview, { TypeTag } from './ContentPreview.jsx';
 
 export default function PlaylistModal({ device, contents, onClose }) {
   const toast = useToast();
@@ -46,48 +47,75 @@ export default function PlaylistModal({ device, contents, onClose }) {
 
   const inList = new Set((items ?? []).map((i) => i.content_id));
   const available = contents.filter((c) => !inList.has(c.id));
+  const totalSec = (items ?? []).reduce((sum, it) => sum + (Number(it.duration_sec) || 0), 0);
+
+  const sectionTitle = 'mb-2.5 flex items-center justify-between text-xs font-semibold uppercase tracking-wide text-muted';
 
   return (
-    <Modal title={`Playlist · ${device.nama}`} onClose={onClose} wide>
+    <Modal
+      title={`Playlist · ${device.nama}`}
+      description="Atur urutan dan durasi tayang content untuk device ini."
+      icon={ListVideo}
+      size="lg"
+      onClose={onClose}
+      footer={
+        <>
+          <Button onClick={onClose}>Batal</Button>
+          <Button variant="primary" onClick={save} loading={busy} disabled={items === null}>Simpan playlist</Button>
+        </>
+      }
+    >
       {items === null ? (
-        <p className="text-sm text-muted">Memuat…</p>
+        <div className="grid gap-5 md:grid-cols-2" aria-busy="true">
+          {[0, 1].map((col) => (
+            <div key={col} className="space-y-2">
+              <Skeleton className="mb-3 h-3 w-28" />
+              {[0, 1, 2].map((i) => <Skeleton key={i} className="h-14 rounded-xl" />)}
+            </div>
+          ))}
+        </div>
       ) : (
         <div className="grid gap-5 md:grid-cols-2">
           <section>
-            <h3 className="mb-2 text-xs font-medium uppercase tracking-wide text-muted">
-              Urutan tayang ({items.length})
+            <h3 className={sectionTitle}>
+              <span>Urutan tayang ({items.length})</span>
+              {items.length > 0 && <span className="font-medium normal-case tracking-normal">Total {totalSec} detik</span>}
             </h3>
             {items.length === 0 ? (
-              <EmptyState>Playlist kosong. Tambahkan content dari daftar di samping.</EmptyState>
+              <EmptyState icon={ListVideo} title="Playlist kosong">Tambahkan content dari daftar di samping.</EmptyState>
             ) : (
               <ol className="space-y-2">
                 {items.map((item, i) => {
                   const c = byId[item.content_id];
                   if (!c) return null;
                   return (
-                    <li key={item.content_id} className="flex items-center gap-2 rounded-lg border border-line bg-surface-2 p-2">
-                      <span className="w-5 text-center font-mono text-xs text-muted">{i + 1}</span>
-                      <ContentPreview content={c} className="size-10 shrink-0 rounded" />
-                      <span className="min-w-0 flex-1 truncate text-sm">{c.judul}</span>
-                      <input
-                        type="number"
-                        min="1"
-                        value={item.duration_sec}
-                        onChange={(e) => setDuration(i, e.target.value)}
-                        aria-label={`Durasi ${c.judul} (detik)`}
-                        className="w-14 rounded border border-line bg-surface px-1.5 py-1 text-center text-sm"
-                      />
-                      <span className="text-xs text-muted">dtk</span>
-                      <Button variant="ghost" className="px-2 py-1" onClick={() => move(i, -1)} disabled={i === 0} aria-label="Naikkan">↑</Button>
-                      <Button variant="ghost" className="px-2 py-1" onClick={() => move(i, 1)} disabled={i === items.length - 1} aria-label="Turunkan">↓</Button>
-                      <Button
-                        variant="ghost"
-                        className="px-2 py-1 text-danger"
-                        onClick={() => setItems(items.filter((_, idx) => idx !== i))}
-                        aria-label="Hapus dari playlist"
-                      >
-                        ✕
-                      </Button>
+                    <li key={item.content_id} className="flex items-center gap-2 rounded-xl border border-line bg-surface-2/60 p-2">
+                      <span className="w-5 text-center font-mono text-xs font-semibold text-muted">{i + 1}</span>
+                      <ContentPreview content={c} className="size-10 shrink-0 rounded-lg" compact />
+                      <span className="min-w-0 flex-1 truncate text-sm text-fg">{c.judul}</span>
+                      <label className="flex items-center gap-1 text-xs text-muted">
+                        <input
+                          type="number"
+                          min="1"
+                          value={item.duration_sec}
+                          onChange={(e) => setDuration(i, e.target.value)}
+                          aria-label={`Durasi ${c.judul} (detik)`}
+                          className="w-14 rounded-md border border-line-strong bg-surface px-1.5 py-1 text-center text-sm text-fg focus:border-accent focus:outline-none"
+                        />
+                        dtk
+                      </label>
+                      <div className="flex">
+                        <IconButton icon={ChevronUp} label="Naikkan" tooltip={false} className="size-7" onClick={() => move(i, -1)} disabled={i === 0} />
+                        <IconButton icon={ChevronDown} label="Turunkan" tooltip={false} className="size-7" onClick={() => move(i, 1)} disabled={i === items.length - 1} />
+                        <IconButton
+                          icon={X}
+                          label="Hapus dari playlist"
+                          tone="danger"
+                          tooltip={false}
+                          className="size-7"
+                          onClick={() => setItems(items.filter((_, idx) => idx !== i))}
+                        />
+                      </div>
                     </li>
                   );
                 })}
@@ -96,23 +124,22 @@ export default function PlaylistModal({ device, contents, onClose }) {
           </section>
 
           <section>
-            <h3 className="mb-2 text-xs font-medium uppercase tracking-wide text-muted">Content tersedia</h3>
+            <h3 className={sectionTitle}>Content tersedia ({available.length})</h3>
             {available.length === 0 ? (
-              <EmptyState>Semua content sudah masuk playlist.</EmptyState>
+              <EmptyState icon={Inbox} title={contents.length ? 'Semua sudah masuk' : 'Belum ada content'}>
+                {contents.length ? 'Semua content sudah ada di playlist.' : 'Tambahkan content di menu Contents.'}
+              </EmptyState>
             ) : (
               <ul className="space-y-2">
                 {available.map((c) => (
-                  <li key={c.id} className="flex items-center gap-2 rounded-lg border border-line p-2">
-                    <ContentPreview content={c} className="size-10 shrink-0 rounded" />
+                  <li key={c.id} className="flex items-center gap-2.5 rounded-xl border border-line p-2">
+                    <ContentPreview content={c} className="size-10 shrink-0 rounded-lg" compact />
                     <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm">{c.judul}</p>
-                      <p className="text-xs text-muted">{typeLabel(c.tipe)}</p>
+                      <p className="truncate text-sm text-fg">{c.judul}</p>
+                      <TypeTag tipe={c.tipe} className="mt-0.5" />
                     </div>
-                    <Button
-                      className="px-2.5 py-1"
-                      onClick={() => setItems([...items, { content_id: c.id, duration_sec: 10 }])}
-                    >
-                      + Tambah
+                    <Button size="sm" icon={Plus} onClick={() => setItems([...items, { content_id: c.id, duration_sec: 10 }])}>
+                      Tambah
                     </Button>
                   </li>
                 ))}
@@ -121,10 +148,6 @@ export default function PlaylistModal({ device, contents, onClose }) {
           </section>
         </div>
       )}
-      <div className="mt-5 flex justify-end gap-2 border-t border-line pt-4">
-        <Button onClick={onClose}>Batal</Button>
-        <Button variant="primary" onClick={save} disabled={busy || items === null}>Simpan playlist</Button>
-      </div>
     </Modal>
   );
 }

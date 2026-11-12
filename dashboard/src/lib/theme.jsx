@@ -6,14 +6,16 @@ export function ThemeProvider({ children }) {
   const [dark, setDark] = useState(() => document.documentElement.classList.contains('dark'));
 
   const toggle = useCallback(() => {
-    setDark((prev) => {
-      const next = !prev;
-      document.documentElement.classList.toggle('dark', next);
-      try {
-        localStorage.setItem('theme', next ? 'dark' : 'light');
-      } catch {}
-      return next;
-    });
+    const root = document.documentElement;
+    const next = !root.classList.contains('dark');
+    // Transisi warna hanya selama pergantian tema, supaya interaksi biasa tetap responsif.
+    root.classList.add('theme-transition');
+    root.classList.toggle('dark', next);
+    setTimeout(() => root.classList.remove('theme-transition'), 250);
+    try {
+      localStorage.setItem('theme', next ? 'dark' : 'light');
+    } catch {}
+    setDark(next);
   }, []);
 
   const value = useMemo(() => ({ dark, toggle }), [dark, toggle]);

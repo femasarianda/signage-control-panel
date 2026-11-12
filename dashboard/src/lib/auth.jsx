@@ -11,7 +11,10 @@ export function AuthProvider({ children }) {
     setTokenState(null);
   }, []);
 
-  useEffect(() => setUnauthorizedHandler(logout), [logout]);
+  // Kurung kurawal penting: setUnauthorizedHandler mengembalikan `logout`, yang tanpa ini dianggap React sebagai cleanup.
+  useEffect(() => {
+    setUnauthorizedHandler(logout);
+  }, [logout]);
 
   const login = useCallback(async (username, password) => {
     const { token: newToken } = await api.login(username, password);
